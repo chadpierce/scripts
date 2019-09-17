@@ -1,0 +1,10 @@
+use these to add timestamps to pings, for whatever
+
+for all pings:
+ping 8.8.8.8 | while read pong; do echo "$(date): $pong"; done
+
+return bad pings only:
+ping 8.8.8.8 | awk '/Request timeout for / { "date" | getline pong; close("date"); print pong":",$0; }'
+
+return good pings only:
+ping 8.8.8.8 | awk '/^[0-9]+ bytes from / { "date" | getline pong; close("date"); print pong":",$0; }'

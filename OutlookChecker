@@ -1,0 +1,163 @@
+# Checks to see if outlook is running, emails if not
+# This was once used in conjunction with a "highAlert.ps1" script and Outlook rules that sent a high priority message to a second email account that I was able to add a loud, grating, and horrible alert tone to
+
+### This is the high alert script:
+#    $From = "user@mailserver.com"
+#    $To = "user@domain.com"
+#    $Subject = "[High Alert]"
+#    #$Body = "Insert body text here"
+#    $SMTPServer = "mailserver"
+#    #$SMTPPort = "587"
+#    Send-MailMessage -From $From -to $To -Subject $Subject -SmtpServer $SMTPServer -Priority High
+### End high alert script
+
+#Begin checker Script:
+
+$Logfile = "C:\OutlookChecker.log"
+$counter = 0
+$toAddress = "username@domain.com"
+$smptServ = "servername"
+$fromAddress = "username@domain.com"
+
+Function LogWrite
+{
+   Param ([string]$logstring)
+   $dateTime = (Get-Date).ToString('MM/dd/yyyy-hh:mm:ss')
+   Add-content $Logfile -value $dateTime"  "$logstring 
+}
+
+Function CheckResponding {
+                      
+     If ((get-process outlook).responding) {
+        #LogWrite "OK"
+        write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= OK" -ForegroundColor DarkGray
+     }
+     Else {
+        #LogWrite "ERROR - Outlook not responding"
+        write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= ERROR - Outlook not responding" -ForegroundColor Red
+        Stop-Process -processname outlook
+        Start-Sleep -s 30
+        & "C:\Program Files (x86)\Microsoft Office\root\Office16\OUTLOOK.EXE"
+        #sleep, check if app is running now
+        Start-Sleep -s 30
+        $outlook = Get-Process outlook -ErrorAction SilentlyContinue
+        If (-Not $outlook) { 
+            #LogWrite "Unable to Restart"
+            write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= Unable to Restart" -ForegroundColor Red
+            send-mailmessage -smtpServer smtpServ -priority high -to $toAddress -from $fromAddress -subject ">>>Outlook Issue - Not Responding (Unable to Restart)<<<"
+        }
+        Else { write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= Restart Successful" -ForegroundColor Yellow
+            #LogWrite "Restart Successful" 
+            send-mailmessage -smtpServer smtpServ -priority high -to $toAddress -from $fromAddress -subject ">>>Outlook Issue - Not Responding (Restart Successful)<<<"
+        }
+    }
+
+}
+
+Function CheckOutlook {
+
+    $outlook = Get-Process outlook -ErrorAction SilentlyContinue
+    If (-Not $outlook) {
+        #not running
+        #LogWrite "ERROR - Outlook not running"
+        write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= ERROR - Outlook not running" -ForegroundColor Red
+        & "C:\Program Files (x86)\Microsoft Office\root\Office16\OUTLOOK.EXE"
+      
+        #sleep, check if app is running now
+        Start-Sleep -s 30
+        $outlook = Get-Process outlook -ErrorAction SilentlyContinue
+        If (-Not $outlook) { 
+            #LogWrite "Unable to start Outlook"
+            write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= Unable to start Outlook" -ForegroundColor Red
+            send-mailmessage -smtpServer smtpServ -priority high -to $toAddress -from $fromAddress -subject ">>>Outlook Issue - Not Running (Unable to Start)<<<"
+        }
+        Else { write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= Restart Successful" -ForegroundColor Yellow 
+            #LogWrite "Restart Successful" 
+            send-mailmessage -smtpServer smtpServ -priority high -to $toAddress -from $fromAddress -subject ">>>Outlook Issue - Not Running (Restart Successful)<<<"
+        }
+      
+    }
+    Else {
+        #running
+        #LogWrite (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= OK" -ForegroundColor DarkGray
+        CheckResponding
+    }
+
+    Remove-Variable outlook
+
+}
+
+Function RestartOutlook {
+        Stop-Process -processname outlook
+        Start-Sleep -s 30
+        & "C:\Program Files (x86)\Microsoft Office\root\Office16\OUTLOOK.EXE"
+        #LogWrite "Outlook RESTARTED"
+        write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= Outlook RESTARTED" -ForegroundColor Green
+    }
+
+
+Function CheckRestart {
+
+    if ($script:counter -eq 0) {
+    
+        if (("Saturday","Sunday") -contains (get-date).DayOfWeek) { 
+                $script:counter++
+                RestartOutlook
+        }
+        else{
+
+            if ((8,9,10,11,12,13,14,15,16,17,18) -contains (get-date).Hour) { 
+                #do nothing during bus hours
+                #keep counter at 0 so restart can begin when one of the scenarios is met
+                $script:counter = 0
+            }
+            else {
+                $script:counter++
+                RestartOutlook                
+            }
+         }
+    }
+    else {
+        if ($script:counter -eq 5) {
+            $script:counter = 0
+        }
+        else {
+            $script:counter++
+        }
+    }
+}
+
+#this just checks that outlook was running, because at the time it had a knack for crashing randomly
+Function 730Alert {
+    if ((17) -contains (get-date).Hour) {
+    $mins = (get-date).minute
+    if ($mins -ge 30 -and $mins -le 59){ 
+        #LogWrite "Outlook Checker Machine is UP"
+            write-host (Get-Date).ToString('MM/dd/yyyy hh:mm:ss') "= Outlook Checker 7:30 Status - PASSED - Email Sent" -ForegroundColor Green
+            send-mailmessage -smtpServer smtpServ -priority high -to $toAddress -from $fromAddress -subject "[HEARTBEAT]"     
+    }
+}
+
+
+
+}
+
+
+#todo: add popup window to confirm restart and wait 30 secs, if no interaction restart occurs
+#todo: if the script is launched during a restart window (weekend, after hours) it errors and and restarts. 
+#      possible fix is to check to see if the process is running before the do while loop and start a 30min sleep, then go into the loop
+
+Do {
+    #LogWrite "CHECKER STARTED"
+    CheckRestart
+    #TODO sleep here?
+    CheckOutlook
+    #RestartOutlook
+    #CheckResponding
+    730Alert
+
+    Start-Sleep -s 1800 #30 minutes
+       
+} While ($True)
+
+#LogWrite "CHECKER STOPPED"

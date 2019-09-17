@@ -1,0 +1,119 @@
+VPN Router Setup - Using Raspberry Pi w/ Raspbian, HostAPD, and OpenVPN
+-Kills client internet connections when VPN Connection is lost
+-Blocks access to other networks
+-ethernet bridges to network, wlan0 acts as hotspot
+-This was hastily thrown together AFTER setting up my hotspot and may be missing steps
+
+Notes:
+
+BACKUP SD Card
+sudo dd bs=4m if=/dev/disk1 | gzip > piRouter.img.gz
+RESTORE SD Card
+gunzip --stdout rasbian.img.gz | sudo dd bs=4m of=/dev/sdb
+
+Used information compiled from the following sites:
+https://www.raspberrypi.org/documentation/configuration/wireless/access-point.md
+https://learn.adafruit.com/setting-up-a-raspberry-pi-as-a-wifi-access-point/install-software
+https://gist.github.com/superjamie/ac55b6d2c080582a3e64
+
+Setup:
+install dnsmasq
+install hostapd
+install iptables-persistent
+
+static wlan in interfaces
+static eth in dhcpcd.conf
+
+
+FILE CONFIG: dhcpcd.conf
+#denyinterfaces wlan0
+#denyinterfaces eth0
+
+interface eth0
+static ip_address=192.168.1.2/24 #vpn router
+static routers=192.168.1.1 #main router
+static domain_name_servers=8.8.8.8 8.8.4.4 #google dns 
+
+FILE CONFIG:/etc/dnsmasq.conf
+interface=wlan0 #hotspot adapter
+dhcp-range=192.168.2.100,192.168.2.120,255.255.255.0,12h #hostapd hotspot dchp range
+
+FILE CONFIG: /etc/hostapd/hostapd.conf
+interface=wlan0
+#driver=nl80211
+ssid=NETWORK #this is your hotspot name
+country_code=US
+hw_mode=g
+channel=8 #hotpspot channel, this can be changed if necessary
+wmm_enabled=0
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=1 #theoretically this could be changed to stop broadcasting ssid, but it doesn't work
+wpa=2
+wpa_passphrase=RABBITsnakehorseWIZARD #this is your wifi key - lock down file to prevent others to see
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+
+FILE CONFIG: in /etc/default/hostapd
+change line to DAEMON_CONF="/etc/hostapd/hostapd.conf"
+
+START SERVICES:
+sudo service hostapd start  
+sudo service dnsmasq start 
+
+More Documentation: https://learn.adafruit.com/setting-up-a-raspberry-pi-as-a-wifi-access-point/install-software
+
+
+CONFIGURE NAT:
+
+sudo nano /etc/sysctl.conf
+add
+net.ipv4.ip_forward=1
+to bottom of file
+
+sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+to activate it immediately
+
+Run the following commands to create the network translation between the ethernet port eth0 and the wifi port wlan0
+	1	sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+	2	sudo iptables -A FORWARD -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+	3	sudo iptables -A FORWARD -i wlan0 -o eth0 -j ACCEPT
+You can check to see whats in the tables with
+sudo iptables -t nat -S
+sudo iptables -S
+To make this happen on reboot (so you don't have to type it every time) run
+sudo sh -c "iptables-save > /etc/iptables/rules.v4"
+
+CONFIGUIRE openVPN
+
+install openvpn
+get certs (ovpn files) from vpn provider 
+change .ovpn to .conf (not sure if this is required?)
+
+sudo openvpn —config /etc/openvpn/whatever.conf
+
+sudo systemctl enable openvpn@whatever.conf
+for auto
+
+THESE STEPS SET UP FORWARDING FOR THE TUNNEL:
+
+Enable IP Forwarding:
+echo -e '\n#Enable IP Routing\nnet.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+Setup NAT fron the local LAN down the VPN tunnel:
+sudo iptables -t nat -A POSTROUTING -o tun0 -j MASQUERADE
+sudo iptables -A FORWARD -i tun0 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+sudo iptables -A FORWARD -i eth0 -o tun0 -j ACCEPT
+
+Make the NAT rules persistent across reboot:
+sudo apt-get install iptables-persistent
+
+The installer will ask if you want to save current rules, select Yes
+If you don't select yes, that's fine, you can save the rules later with sudo netfilter-persistent save
+Make the rules apply at startup:
+sudo systemctl enable netfilter-persistent
+
+NOTES:
+use hostapd_cli to monitor connections. another file in this repository describes how
+set up auto apt updates unless you want to manually keep things up to date
