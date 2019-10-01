@@ -77,7 +77,8 @@ def get_accounts_nix():
 
 def redraw_screen(os_type):
     #os.system('cls')
-    os.system('clear')
+    #os.system('clear')
+    os.system('cls || clear')
     if os_type == 'win':
         print('Windows Selected')
     elif os_type == 'nix':
